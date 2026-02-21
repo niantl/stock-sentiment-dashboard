@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from sentiment import get_hype_analysis # Your AI Module
 
 app = FastAPI(title="Stock Data & Indicator API")
 
@@ -10,10 +11,10 @@ app = FastAPI(title="Stock Data & Indicator API")
 def read_root():
     return {"message": "Welcome to the Stock API! Go to /docs to see the API documentation."}
 
-# Enable CORS so your frontend can communicate with this API
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,11 +25,8 @@ def calculate_rsi(data: pd.Series, window: int = 14):
     delta = data.diff()
     gain = delta.clip(lower=0)
     loss = -1 * delta.clip(upper=0)
-    
-    # Use exponential moving average (standard for RSI)
     ema_gain = gain.ewm(com=window-1, adjust=False).mean()
     ema_loss = loss.ewm(com=window-1, adjust=False).mean()
-    
     rs = ema_gain / ema_loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
@@ -37,18 +35,17 @@ def calculate_rsi(data: pd.Series, window: int = 14):
 def get_stock_data(symbol: str):
     try:
         # 1. Initialize yfinance Ticker
-        ticker = yf.Ticker(symbol.upper())
+        ticker_obj = yf.Ticker(symbol.upper())
         
-        # 2. Fetch Info (for PE, PB, 52W High/Low)
-        info = ticker.info
-        
+        # 2. Fetch Info
+        info = ticker_obj.info
         if 'regularMarketPrice' not in info and 'currentPrice' not in info:
-             raise HTTPException(status_code=404, detail="Stock symbol not found or data unavailable.")
+             raise HTTPException(status_code=404, detail="Stock symbol not found.")
 
         current_price = info.get('currentPrice', info.get('regularMarketPrice', 0))
         
-        # 3. Fetch Historical Data (1 year to ensure enough data for 50MA)
-        hist = ticker.history(period="1y")
+        # 3. Fetch Historical Data
+        hist = ticker_obj.history(period="1y")
         if hist.empty:
             raise HTTPException(status_code=404, detail="Historical data not found.")
 
@@ -57,7 +54,6 @@ def get_stock_data(symbol: str):
         hist['SMA_50'] = hist['Close'].rolling(window=50).mean()
         hist['RSI'] = calculate_rsi(hist['Close'])
 
-        # Get the latest indicator values
         latest_data = hist.iloc[-1]
         sma_20 = latest_data['SMA_20']
         sma_50 = latest_data['SMA_50']
@@ -71,18 +67,18 @@ def get_stock_data(symbol: str):
             elif sma_20 < sma_50:
                 signal = "Downtrend"
 
-        # 6. Format Candle Data for Frontend
-        # Keep only the last 30 days for the chart to keep the payload light
+        # 6. Format Candle Data
         recent_hist = hist.tail(30).copy()
         recent_hist.reset_index(inplace=True)
-        
-        # Convert dates to string format and handle NaN values for JSON serialization
         recent_hist['Date'] = recent_hist['Date'].dt.strftime('%Y-%m-%d')
         recent_hist = recent_hist.replace({np.nan: None})
-
         candles = recent_hist[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].to_dict(orient='records')
 
-        # 7. Construct and Return JSON Payload
+        # --- STEP 7: CALL YOUR AI SENTIMENT MODULE ---
+        # This takes the symbol from the request and gets the "Hype"
+        sentiment_data = get_hype_analysis(symbol)
+
+        # 8. Construct and Return JSON Payload (Now including Sentiment)
         return {
             "symbol": symbol.upper(),
             "price_data": {
@@ -98,6 +94,7 @@ def get_stock_data(symbol: str):
                 "rsi_14": round(rsi_value, 2) if pd.notna(rsi_value) else None
             },
             "technical_signal": signal,
+            "sentiment": sentiment_data, # <--- NEW: AI results added here
             "candle_data": candles
         }
 
