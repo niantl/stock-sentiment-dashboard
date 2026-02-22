@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import PriceChart from "@/components/PriceChart";
+//import PriceChart from "@/components/PriceChart";
 
 const BACKEND_URL = "http://localhost:8000"; // <-- change if needed
 
@@ -194,13 +194,7 @@ export default function DashboardPage() {
               <h3 className="text-lg font-semibold mb-4">Price Chart</h3>
 
               <div className="bg-gray-900 rounded-lg p-2 h-[380px]">
-                {candles.length > 0 ? (
-                  <PriceChart data={candles} />
-                ) : (
-                  <div className="h-full flex items-center justify-center text-gray-400">
-                    No chart data
-                  </div>
-                )}
+                
               </div>
             </div>
           </>
